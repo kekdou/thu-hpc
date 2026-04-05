@@ -12,9 +12,9 @@ static void radix_sort(float* arr, float* temp, size_t len) {
   uint32_t* dst = reinterpret_cast<uint32_t*>(temp);
   for (size_t i = 0; i < len; ++i) {
     uint32_t u = src[i];
-    src[i] = (u & 0x80000000) ? ~u : (u | 0x80000000);
+    src[i] = (u >> 31) ? ~u : (u | 0x80000000);
   }
-  for (int shift = 0; shift < 4; shift++) {
+  for (int shift = 0; shift < 32; shift += 8) {
     uint32_t count[256] = {0};
     for (size_t i = 0; i < len; ++i) {
       count[(src[i] >> shift) & 0xFF]++;
@@ -33,7 +33,7 @@ static void radix_sort(float* arr, float* temp, size_t len) {
   }
   for (size_t i = 0; i < len; ++i) {
     uint32_t u = src[i];
-    src[i] = (u & 0x80000000) ? (u & ~0x80000000) : ~u;
+    src[i] = (u >> 31) ? (u & 0x7FFFFFFF) : ~u;
   }
 }
 
@@ -55,8 +55,8 @@ void Worker::sort() {
   float* src = data;
   float* dst = bufferB;
 
-  for (int i = 0; i < nprocs; i++) {
-    int neighbor = (i & 1) ? (rank & 1 ? rank + 1 : rank - 1) : (rank & 1 ? rank - 1 : rank + 1);
+  for (int shift = 0; shift < nprocs; shift++) {
+    int neighbor = (shift & 1) ? (rank & 1 ? rank + 1 : rank - 1) : (rank & 1 ? rank - 1 : rank + 1);
     if (neighbor >= 0 && neighbor < active_procs) {
       size_t neighbor_len = (neighbor == active_procs - 1) ? (n - neighbor * b_size) : b_size;
 
@@ -96,7 +96,7 @@ void Worker::sort() {
         } else {
           long long i = block_len - 1, j = neighbor_len - 1, k = block_len - 1;
           while (k >= 0) {
-            if (j < 0 || (i >= 0 && data[i] >= recv_data[j])) {
+            if (j < 0 || (i >= 0 && src[i] >= recv_data[j])) {
               dst[k--] = src[i--];
             } else {
               dst[k--] = recv_data[j--];
