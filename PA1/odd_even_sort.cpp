@@ -12,10 +12,12 @@ void Worker::sort() {
     return;
   }
   std::sort(data, data + block_len);
+
   size_t b_size = (n + nprocs - 1) / nprocs;
   int active_procs = (n + b_size - 1) / b_size;
   float* recv_data = new float[b_size];
   float* temp = new float[b_size];
+  
   for (int i = 0; i < nprocs; ++i) {
     int local_changed = 0;
     int neighbor = (i & 1) ? (rank & 1 ? rank + 1 : rank - 1) : (rank & 1 ? rank - 1 : rank + 1);
@@ -41,7 +43,7 @@ void Worker::sort() {
       }
 
       if (need_exchange) {
-        local_change = 1;
+        local_changed = 1;
         MPI_Sendrecv(data, block_len, MPI_FLOAT, neighbor, 1, 
                      recv_data, neighbor_len, MPI_FLOAT, neighbor, 1, 
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -69,12 +71,14 @@ void Worker::sort() {
         memcpy(data, temp, block_len * sizeof(float));
       }
     }
+
     int global_changed = 0;
     MPI_Allreduce(&local_changed, &global_changed, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
     if (global_changed == 0) {
       break;
     }
   }
+
   delete[] recv_data;
   delete[] temp;
 }
