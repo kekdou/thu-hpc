@@ -85,7 +85,7 @@ void Worker::sort() {
                      recv_data, neighbor_len, MPI_FLOAT, neighbor, 1, 
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         if (rank < neighbor) {
-          long long i = 0, j = 0, k = 0;
+          size_t i = 0, j = 0, k = 0;
           while (k < block_len) {
             if (j == neighbor_len || (i < block_len && src[i] <= recv_data[j])) {
               dst[k++] = src[i++];
@@ -111,7 +111,7 @@ void Worker::sort() {
   }
 
   if (src != data) {
-    std::memcpy(data, src, block_len * sizeof(float));
+    memcpy(data, src, block_len * sizeof(float));
   }
   delete[] recv_data;
   delete[] bufferB;
