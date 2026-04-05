@@ -1,4 +1,4 @@
-CFLAGS ?= -std=c++14 -O2 -Wall -Wextra -Werror -Wno-cast-function-type -pedantic -DDEBUG
+CFLAGS ?= -std=c++14 -O3 -Wall -Wextra -Werror -Wno-cast-function-type -pedantic -DNDEBUG
 
 .PHONY: clean check_mpi
 
