@@ -7,78 +7,112 @@
 
 #include "worker.h"
 
+static void radix_sort(float* arr, float* temp, size_t len) {
+  uint32_t* src = reinterpret_cast<uint32_t*>(arr);
+  uint32_t* dst = reinterpret_cast<uint32_t*>(temp);
+  for (size_t i = 0; i < len; ++i) {
+    uint32_t u = src[i];
+    src[i] = (u & 0x80000000) ? ~u : (u | 0x80000000);
+  }
+  for (int shift = 0; shift < 4; shift++) {
+    uint32_t count[256] = {0};
+    for (size_t i = 0; i < len; ++i) {
+      count[(src[i] >> shift) & 0xFF]++;
+    }
+    uint32_t pos[256];
+    pos[0] = 0;
+    for (int i = 1; i < 256; ++i) {
+        pos[i] = pos[i - 1] + count[i - 1];
+    }
+    for (size_t i = 0; i < len; ++i) {
+      dst[pos[(src[i] >> shift) & 0xFF]++] = src[i];
+    }
+    uint32_t* tmp = src;
+    src = dst;
+    dst = tmp;
+  }
+  for (size_t i = 0; i < len; ++i) {
+    uint32_t u = src[i];
+    src[i] = (u & 0x80000000) ? (u & ~0x80000000) : ~u;
+  }
+}
+
 void Worker::sort() {
   if (out_of_range || block_len == 0) {
     return;
   }
-  std::sort(data, data + block_len);
-
   size_t b_size = (n + nprocs - 1) / nprocs;
   int active_procs = (n + b_size - 1) / b_size;
+  float* bufferB = new float[b_size];
   float* recv_data = new float[b_size];
-  float* temp = new float[b_size];
-  
-  for (int i = 0; i < nprocs; ++i) {
-    int local_changed = 0;
+
+  if (block_len > 10000) {
+    radix_sort(data, bufferB, block_len);
+  } else {
+    std::sort(data, data + block_len);
+  }
+
+  float* src = data;
+  float* dst = bufferB;
+
+  for (int i = 0; i < nprocs; i++) {
     int neighbor = (i & 1) ? (rank & 1 ? rank + 1 : rank - 1) : (rank & 1 ? rank - 1 : rank + 1);
     if (neighbor >= 0 && neighbor < active_procs) {
       size_t neighbor_len = (neighbor == active_procs - 1) ? (n - neighbor * b_size) : b_size;
+
+      float my_pivot, recv_pivot;
+      if (rank < neighbor) {
+          my_pivot = src[block_len - 1];
+      } else {
+          my_pivot = src[0];
+      }
+      MPI_Sendrecv(&my_pivot, 1, MPI_FLOAT, neighbor, 0,
+                   &recv_pivot, 1, MPI_FLOAT, neighbor, 0,
+                   MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       bool need_exchange = 0;
       if (rank < neighbor) {
-        float neighbor_min;
-        MPI_Sendrecv(&data[block_len - 1], 1, MPI_FLOAT, neighbor, 0, 
-                     &neighbor_min, 1, MPI_FLOAT, neighbor, 0, 
-                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        if (data[block_len - 1] > neighbor_min) {
-          need_exchange = 1;
+        if (my_pivot > recv_pivot) {
+          need_exchange = 1; 
         }
       } else {
-        float neighbor_max;
-        MPI_Sendrecv(&data[0], 1, MPI_FLOAT, neighbor, 0, 
-                     &neighbor_max, 1, MPI_FLOAT, neighbor, 0, 
-                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        if (data[0] < neighbor_max) {
+        if (my_pivot < recv_pivot) {
           need_exchange = 1;
         }
       }
 
       if (need_exchange) {
-        local_changed = 1;
-        MPI_Sendrecv(data, block_len, MPI_FLOAT, neighbor, 1, 
+        MPI_Sendrecv(src, block_len, MPI_FLOAT, neighbor, 1, 
                      recv_data, neighbor_len, MPI_FLOAT, neighbor, 1, 
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         if (rank < neighbor) {
-          size_t i = 0, j = 0, k = 0;
+          long long i = 0, j = 0, k = 0;
           while (k < block_len) {
-            if (j == neighbor_len || (i < block_len && data[i] <= recv_data[j])) {
-              temp[k++] = data[i++];
+            if (j == neighbor_len || (i < block_len && src[i] <= recv_data[j])) {
+              dst[k++] = src[i++];
             } else {
-              temp[k++] = recv_data[j++];
+              dst[k++] = recv_data[j++];
             }
           }
         } else {
-          long long i = (long long)block_len - 1;
-          long long j = (long long)neighbor_len - 1;
-          long long k = (long long)block_len - 1;
+          long long i = block_len - 1, j = neighbor_len - 1, k = block_len - 1;
           while (k >= 0) {
             if (j < 0 || (i >= 0 && data[i] >= recv_data[j])) {
-              temp[k--] = data[i--];
+              dst[k--] = src[i--];
             } else {
-              temp[k--] = recv_data[j--];
+              dst[k--] = recv_data[j--];
             }
           }
         }
-        memcpy(data, temp, block_len * sizeof(float));
+        float* tmp = src;
+        src = dst;
+        dst = tmp;
       }
-    }
-
-    int global_changed = 0;
-    MPI_Allreduce(&local_changed, &global_changed, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
-    if (global_changed == 0) {
-      break;
     }
   }
 
+  if (src != data) {
+    std::memcpy(data, src, block_len * sizeof(float));
+  }
   delete[] recv_data;
-  delete[] temp;
+  delete[] bufferB;
 }
