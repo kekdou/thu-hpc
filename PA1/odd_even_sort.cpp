@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "worker.h"
 
@@ -75,29 +76,27 @@ void Worker::sort() {
         MPI_Sendrecv(src, block_len, MPI_FLOAT, neighbor, 1, 
                      recv_data, neighbor_len, MPI_FLOAT, neighbor, 1, 
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        size_t k = 0;
         if (rank < neighbor) {
-          size_t i = 0, j = 0;
-          for (size_t k = 0; k < block_len; k++) {
-            if (j < neighbor_len && (i == block_len || recv_data[j] < src[i])) {
-                dst[k] = recv_data[j++];
+          size_t i = 0, j = 0, k = 0;
+          while (k < block_len) {
+            if (j == neighbor_len || (i < block_len && src[i] <= recv_data[j])) {
+              dst[k++] = src[i++];
             } else {
-                dst[k] = src[i++];
+              dst[k++] = recv_data[j++];
             }
           }
         } else {
-          int i = (int)block_len - 1;
-          int j = (int)neighbor_len - 1;
-          for (int k = (int)block_len - 1; k >= 0; k--) {
-              if (j >= 0 && (i < 0 || recv_data[j] > src[i])) {
-                  dst[k] = recv_data[j--];
-              } else {
-                  dst[k] = src[i--];
-              }
+          long long i = block_len - 1, j = neighbor_len - 1, k = block_len - 1;
+          while (k >= 0) {
+            if (j < 0 || (i >= 0 && src[i] >= recv_data[j])) {
+              dst[k--] = src[i--];
+            } else {
+              dst[k--] = recv_data[j--];
+            }
           }
         }
-        float* tmp = src;
-        src = dst;
-        dst = tmp;
+        std::swap(src, dst);
       }
     }
   }
