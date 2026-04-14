@@ -45,27 +45,19 @@ void Worker::sort() {
   int active_procs = (n + b_size - 1) / b_size;
   float* bufferB = new float[b_size];
   float* recv_data = new float[b_size];
-
   if (block_len > 10000) {
     radix_sort(data, bufferB, block_len);
   } else {
     std::sort(data, data + block_len);
   }
-
   float* src = data;
   float* dst = bufferB;
-
   for (int shift = 0; shift < nprocs; shift++) {
     int neighbor = (shift & 1) ? (rank & 1 ? rank + 1 : rank - 1) : (rank & 1 ? rank - 1 : rank + 1);
     if (neighbor >= 0 && neighbor < active_procs) {
       size_t neighbor_len = (neighbor == active_procs - 1) ? (n - neighbor * b_size) : b_size;
-
       float my_pivot, recv_pivot;
-      if (rank < neighbor) {
-          my_pivot = src[block_len - 1];
-      } else {
-          my_pivot = src[0];
-      }
+      my_pivot = (rank < neighbor) ? src[block_len - 1] : src[0];
       MPI_Sendrecv(&my_pivot, 1, MPI_FLOAT, neighbor, 0,
                    &recv_pivot, 1, MPI_FLOAT, neighbor, 0,
                    MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -79,28 +71,28 @@ void Worker::sort() {
           need_exchange = 1;
         }
       }
-
       if (need_exchange) {
         MPI_Sendrecv(src, block_len, MPI_FLOAT, neighbor, 1, 
                      recv_data, neighbor_len, MPI_FLOAT, neighbor, 1, 
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         if (rank < neighbor) {
-          size_t i = 0, j = 0, k = 0;
-          while (k < block_len) {
-            if (j == neighbor_len || (i < block_len && src[i] <= recv_data[j])) {
-              dst[k++] = src[i++];
+          size_t i = 0, j = 0;
+          for (size_t k = 0; k < block_len; k++) {
+            if (j < neighbor_len && (i == block_len || recv_data[j] < src[i])) {
+                dst[k] = recv_data[j++];
             } else {
-              dst[k++] = recv_data[j++];
+                dst[k] = src[i++];
             }
           }
         } else {
-          long long i = block_len - 1, j = neighbor_len - 1, k = block_len - 1;
-          while (k >= 0) {
-            if (j < 0 || (i >= 0 && src[i] >= recv_data[j])) {
-              dst[k--] = src[i--];
-            } else {
-              dst[k--] = recv_data[j--];
-            }
+          int i = (int)block_len - 1;
+          int j = (int)neighbor_len - 1;
+          for (int k = (int)block_len - 1; k >= 0; k--) {
+              if (j >= 0 && (i < 0 || recv_data[j] > src[i])) {
+                  dst[k] = recv_data[j--];
+              } else {
+                  dst[k] = src[i--];
+              }
           }
         }
         float* tmp = src;
@@ -109,7 +101,6 @@ void Worker::sort() {
       }
     }
   }
-
   if (src != data) {
     memcpy(data, src, block_len * sizeof(float));
   }
