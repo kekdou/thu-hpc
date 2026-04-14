@@ -78,23 +78,42 @@ void Worker::sort() {
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         size_t k = 0;
         if (rank < neighbor) {
-          size_t i = 0, j = 0, k = 0;
-          while (k < block_len) {
-            if (j == neighbor_len || (i < block_len && src[i] <= recv_data[j])) {
-              dst[k++] = src[i++];
-            } else {
-              dst[k++] = recv_data[j++];
-            }
+          size_t skip_i = std::upper_bound(src, src + block_len, recv_data[0]) - src;
+          if (skip_i > 0) {
+            memcpy(dst, src, skip_i * sizeof(float));
           }
+          size_t i = skip_i, j = 0, k = skip_i;
+          while (k < block_len && i < block_len && j < neighbor_len) {
+            bool cmp = src[i] <= recv_data[j];
+            dst[k] = cmp ? src[i] : recv_data[j];
+            i += cmp;
+            j += !cmp;
+            k++;
+          }
+          while (k < block_len && i < block_len) dst[k++] = src[i++];
+          while (k < block_len && j < neighbor_len) dst[k++] = recv_data[j++];
         } else {
-          long long i = block_len - 1, j = neighbor_len - 1, k = block_len - 1;
-          while (k >= 0) {
-            if (j < 0 || (i >= 0 && src[i] >= recv_data[j])) {
-              dst[k--] = src[i--];
-            } else {
-              dst[k--] = recv_data[j--];
+          size_t skip_count = 0;
+          if (neighbor_len > 0) {
+            float max_recv = recv_data[neighbor_len - 1];
+            size_t safe_start = std::lower_bound(src, src + block_len, max_recv) - src;
+            skip_count = block_len - safe_start;
+            if (skip_count > 0) {
+              memcpy(dst + block_len - skip_count, src + block_len - skip_count, skip_count * sizeof(float));
             }
           }
+          long long i = block_len - skip_count - 1;
+          long long j = neighbor_len - 1;
+          long long k = block_len - skip_count - 1;
+          while (k >= 0 && i >= 0 && j >= 0) {
+            bool cmp = src[i] >= recv_data[j];
+            dst[k] = cmp ? src[i] : recv_data[j];
+            i -= cmp;
+            j -= !cmp;
+            k--;
+          }
+          while (k >= 0 && i >= 0) dst[k--] = src[i--];
+          while (k >= 0 && j >= 0) dst[k--] = recv_data[j--];
         }
         std::swap(src, dst);
       }
