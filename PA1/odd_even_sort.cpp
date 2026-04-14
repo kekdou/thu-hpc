@@ -68,27 +68,59 @@ void Worker::sort() {
                      recv_data, neighbor_len, MPI_FLOAT, neighbor, 1, 
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         if (rank < neighbor) {
+          size_t low = (block_len > neighbor_len) ? (block_len - neighbor_len) : 0;
+          size_t high = block_len;
+          while (low < high) {
+            size_t mid = (low + high + 1) >> 1;
+            size_t j_idx = block_len - mid;
+            float a_left = (mid == 0) ? -1e38f : src[mid - 1];
+            float b_right = (j_idx == neighbor_len) ? 1e38f : recv_data[j_idx];
+            if (a_left <= b_right) {
+              low = mid;
+            } else {
+              high = mid - 1;
+            }
+          }
+          size_t i_len = low;
+          size_t j_len = block_len - low;
           size_t i = 0, j = 0, k = 0;
-          while (i < block_len && j < neighbor_len && k < block_len) {
-            bool cmp = (src[i] <= recv_data[j]);
-            dst[k] = cmp ? src[i] : recv_data[j];
-            i += cmp;
-            j += !cmp;
-            k++;
+          while (i < i_len && j < j_len) {
+            if (src[i] <= recv_data[j]) {
+              dst[k++] = src[i++];
+            } else {
+              dst[k++] = recv_data[j++];
+            }
           }
-          while (k < block_len && i < block_len) dst[k++] = src[i++];
-          while (k < block_len && j < neighbor_len) dst[k++] = recv_data[j++];
+          while (i < i_len) dst[k++] = src[i++];
+          while (j < j_len) dst[k++] = recv_data[j++];
         } else {
-          long long i = block_len - 1, j = neighbor_len - 1, k = block_len - 1;
-          while (i >= 0 && j >= 0 && k >= 0) {
-            bool cmp = (src[i] >= recv_data[j]);
-            dst[k] = cmp ? src[i] : recv_data[j];
-            i -= cmp; 
-            j -= !cmp;
-            k--;
+          size_t low = 0;
+          size_t high = std::min(block_len, neighbor_len);
+          while (low < high) {
+            size_t mid = (low + high + 1) >> 1;
+            size_t j_idx = neighbor_len - mid;
+            float a_left = (mid == 0) ? -1e38f : src[mid - 1];
+            float b_right = (j_idx == neighbor_len) ? 1e38f : recv_data[j_idx];
+            if (a_left <= b_right) {
+              low = mid;
+            } else {
+              high = mid - 1;
+            }
           }
-          while (k >= 0 && i >= 0) dst[k--] = src[i--];
-          while (k >= 0 && j >= 0) dst[k--] = recv_data[j--];
+          size_t drop_i = low;
+          size_t drop_j = neighbor_len - low;
+          size_t i = drop_i;
+          size_t j = drop_j;
+          size_t k = 0;
+          while (i < block_len && j < neighbor_len) {
+            if (src[i] <= recv_data[j]) {
+              dst[k++] = src[i++];
+            } else {
+              dst[k++] = recv_data[j++];
+            }
+          }
+          while (i < block_len) dst[k++] = src[i++];
+          while (j < neighbor_len) dst[k++] = recv_data[j++];
         }
         std::swap(src, dst);
       }
